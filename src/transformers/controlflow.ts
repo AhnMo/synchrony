@@ -478,8 +478,9 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
             },
           };
 
-          //const initStatements = normalizInitStatements(init);
-          const initStatements = normalizeAssignments(init);
+          const initStatements = normalizInitStatements(init);
+          //const initStatements = normalizeAssignments(init);
+              
 
           return [
             ...initStatements,
@@ -548,7 +549,12 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
         }
 
         
-        function normalizeAssignments(assignments: ExpressionStatement[]): VariableDeclaration[] {
+        function normalizeAssignments(assignments: ExpressionStatement[] | null): VariableDeclaration[] {
+          /*
+          if (assignments === null) {
+            return [];
+          }
+
           const objectMap: Map<string, Property[]> = new Map();
           const otherDeclarations: VariableDeclarator[] = [];
         
@@ -558,16 +564,13 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
             const right = expression.right;
         
             if (left.type === 'Identifier') {
-              // Handle object assignment (e.g., `a = {}`)
               if (right.type === 'ObjectExpression') {
                 const objectName = left.name;
                 if (!objectMap.has(objectName)) {
                   objectMap.set(objectName, []);
                 }
-                // Add all properties of the object literal to the object map
                 objectMap.get(objectName)!.push(...(right.properties as Property[]));
               } else {
-                // Handle other variable assignments (e.g., `z = 0`)
                 otherDeclarations.push({
                   start: 0, end: 0,
                   type: 'VariableDeclarator',
@@ -576,7 +579,6 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
                 });
               }
             } else if (left.type === 'MemberExpression') {
-              // Handle property assignment (e.g., `a.b = ...`)
               const objectName = (left.object as Identifier).name;
               const propertyKey = left.property;
               if (!objectMap.has(objectName)) {
@@ -594,8 +596,7 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
               });
             }
           });
-        
-          // Create variable declarations for each object
+
           const declarations: VariableDeclaration[] = [];
           objectMap.forEach((properties, objectName) => {
             const objectExpression: ObjectExpression = {
@@ -620,7 +621,6 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
             });
           });
         
-          // Add other variable declarations
           if (otherDeclarations.length > 0) {
             declarations.push({
               start: 0, end: 0,
@@ -631,6 +631,8 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
           }
         
           return declarations;
+          */
+         return  [];
         }
 
         const parent = ancestors[ancestors.length - 2];
