@@ -11,6 +11,16 @@ import {
   ObjectExpression,
   Statement,
   BlockStatement,
+  WhileStatement,
+  ExpressionStatement,
+  ForStatement,
+  VariableDeclaration,
+  Expression,
+  UpdateExpression,
+  VariableDeclarator,
+  AssignmentExpression,
+  SequenceExpression,
+  
 } from '../util/types'
 import { Transformer, TransformerOptions } from './transformer'
 import { walk } from '../util/walk'
@@ -426,14 +436,222 @@ export default class ControlFlow extends Transformer<ControlFlowOptions> {
           startIdx
         )
       },
+      ForStatement(node, _, ancestors) {
+        // Check if the loop is infinite (like `for (;;)`)
+        //if (node.test !== null || node.update !== null || node.init !== null) return
+
+      },
     })
 
     return this
   }
 
+
+
+  
+  forToWhile(context: Context) {
+    walk(context.ast, {
+      ForStatement(node, _, ancestors) {
+
+        function transformForToWhile(forStatement: ForStatement): Statement[] { // BlockStatement
+          const init = forStatement.init as VariableDeclaration | SequenceExpression | null;
+          const test = forStatement.test as Expression | null;
+          const update = forStatement.update as Expression | UpdateExpression | null;
+          const body = forStatement.body as BlockStatement;
+      
+          // Create the WhileStatement
+          const whileStatement: WhileStatement = {
+            start: 0, end: 0,
+            type: 'WhileStatement',
+            test: test || {
+              type: 'Literal',
+              value: true,
+              raw: 'true',
+            } as Expression, // Casting to Expression to ensure type compatibility
+            body: {
+              start: 0, end: 0,
+              type: 'BlockStatement',
+              body: [
+                ...body.body,
+                ...(update ? [{ type: 'ExpressionStatement', expression: update } as ExpressionStatement] : []),
+              ],
+            },
+          };
+
+          //const initStatements = normalizInitStatements(init);
+          const initStatements = normalizeAssignments(init);
+
+          return [
+            ...initStatements,
+            whileStatement,
+          ];
+        }
+
+        function normalizInitStatements(init: VariableDeclaration | SequenceExpression | null): Statement[] {
+          if (init === null) {
+            return [];
+          }
+          
+          const initStatements: Statement[] = [];
+          if (init) {
+            if (init.type === 'VariableDeclaration') {
+              init.declarations.forEach((declaration) => {
+                initStatements.push({
+                  start: 0, end: 0,
+                  type: 'ExpressionStatement',
+                  expression: {
+                    type: 'AssignmentExpression',
+                    operator: '=',
+                    left: declaration.id,
+                    right: declaration.init!,
+                  } as AssignmentExpression,
+                });
+              });
+            } else if (init.type === 'SequenceExpression') {
+              init.expressions.forEach((expression: Expression) => {
+                if (expression.type === 'AssignmentExpression') {
+      
+                  console.log('AssignmentExpression', expression.left);
+      
+                  if (expression.left.type === 'Identifier') {
+                    initStatements.push({
+                      start: 0, end: 0,
+                      type: 'VariableDeclaration',
+                      declarations: [
+                        {
+                          start: 0, end: 0,
+                          type: 'VariableDeclarator',
+                          id: expression.left,
+                          init: expression.right,
+                        } as VariableDeclarator,
+                      ],
+                      kind: 'var',
+                    });
+                  } else if (expression.left.type === 'MemberExpression') {
+                    initStatements.push({
+                      start: 0, end: 0,
+                      type: 'ExpressionStatement',
+                      expression: {
+                        type: 'AssignmentExpression',
+                        operator: '=',
+                        left: expression.left,
+                        right: expression.right,
+                      } as AssignmentExpression,
+                    });
+                  }
+                }
+              });
+            }
+          }
+      
+          return initStatements;
+        }
+
+        
+        function normalizeAssignments(assignments: ExpressionStatement[]): VariableDeclaration[] {
+          const objectMap: Map<string, Property[]> = new Map();
+          const otherDeclarations: VariableDeclarator[] = [];
+        
+          assignments.forEach((statement) => {
+            const expression = statement.expression as AssignmentExpression;
+            const left = expression.left;
+            const right = expression.right;
+        
+            if (left.type === 'Identifier') {
+              // Handle object assignment (e.g., `a = {}`)
+              if (right.type === 'ObjectExpression') {
+                const objectName = left.name;
+                if (!objectMap.has(objectName)) {
+                  objectMap.set(objectName, []);
+                }
+                // Add all properties of the object literal to the object map
+                objectMap.get(objectName)!.push(...(right.properties as Property[]));
+              } else {
+                // Handle other variable assignments (e.g., `z = 0`)
+                otherDeclarations.push({
+                  start: 0, end: 0,
+                  type: 'VariableDeclarator',
+                  id: left,
+                  init: right,
+                });
+              }
+            } else if (left.type === 'MemberExpression') {
+              // Handle property assignment (e.g., `a.b = ...`)
+              const objectName = (left.object as Identifier).name;
+              const propertyKey = left.property;
+              if (!objectMap.has(objectName)) {
+                objectMap.set(objectName, []);
+              }
+              objectMap.get(objectName)!.push({
+                start: 0, end: 0,
+                type: 'Property',
+                key: propertyKey,
+                value: right,
+                kind: 'init',
+                method: false,
+                shorthand: false,
+                computed: false,
+              });
+            }
+          });
+        
+          // Create variable declarations for each object
+          const declarations: VariableDeclaration[] = [];
+          objectMap.forEach((properties, objectName) => {
+            const objectExpression: ObjectExpression = {
+              start: 0, end: 0,
+              type: 'ObjectExpression',
+              properties: properties,
+            };
+            const variableDeclarator: VariableDeclarator = {
+              start: 0, end: 0,
+              type: 'VariableDeclarator',
+              id: {
+                type: 'Identifier',
+                name: objectName,
+              },
+              init: objectExpression,
+            };
+            declarations.push({
+              start: 0, end: 0,
+              type: 'VariableDeclaration',
+              declarations: [variableDeclarator],
+              kind: 'var',
+            });
+          });
+        
+          // Add other variable declarations
+          if (otherDeclarations.length > 0) {
+            declarations.push({
+              start: 0, end: 0,
+              type: 'VariableDeclaration',
+              declarations: otherDeclarations,
+              kind: 'var',
+            });
+          }
+        
+          return declarations;
+        }
+
+        const parent = ancestors[ancestors.length - 2];
+        if (!Guard.isBlockStatement(parent)) return;
+        let ourIdx = parent.body.findIndex(
+          (e) => e.type === node.type && e.start === node.start && e.end === node.end
+        );
+        parent.body.splice(ourIdx, 1, ...transformForToWhile(node));
+      },
+    })
+  }
+  
+
+
+  
+
   public async transform(context: Context) {
+    this.forToWhile(context);
     this.populateEmptyObjects(context)
       .findStorageNode(context)
       .deflatten(context)
+    
   }
 }
